@@ -641,6 +641,7 @@ export class LocalAgentExecutor<TOutput extends z.ZodTypeAny> {
           parts: initialParts,
         };
 
+        let consecutiveErrorCount = 0;
         while (true) {
           // Check for termination conditions like max turns.
           const reason = this.checkTermination(turnCounter, maxTurns);
@@ -674,6 +675,28 @@ export class LocalAgentExecutor<TOutput extends z.ZodTypeAny> {
               finalResult = turnResult.finalResult;
             }
             break; // Exit the loop for *any* stop reason.
+          }
+
+          const allToolsFailed =
+            turnResult.status === 'continue' &&
+            turnResult.nextMessage.parts.every(
+              (p) =>
+                p.functionResponse?.response?.error ||
+                p.text?.includes('failed or were unauthorized'),
+            );
+
+          if (allToolsFailed) {
+            consecutiveErrorCount++;
+            if (consecutiveErrorCount >= 3) {
+              terminateReason = AgentTerminateMode.ERROR;
+              this.emitActivity('ERROR', {
+                error: 'Subagent stopped due to 3 consecutive tool failures.',
+                errorType: SubagentActivityErrorType.GENERIC,
+              });
+              break;
+            }
+          } else {
+            consecutiveErrorCount = 0;
           }
 
           // If status is 'continue', update message for the next loop

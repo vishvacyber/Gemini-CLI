@@ -74,45 +74,62 @@ async function downloadFile(url: string, destPath: string): Promise<void> {
     fs.unlinkSync(tmpPath);
   }
 
-  const response = await fetch(url, { redirect: 'follow' });
-  if (!response.ok) {
-    throw new Error(
-      `Download failed: HTTP ${response.status} ${response.statusText}`,
-    );
-  }
-  if (!response.body) {
-    throw new Error('Download failed: No response body');
-  }
-
-  const contentLength = response.headers.get('content-length');
-  const totalBytes = contentLength ? parseInt(contentLength, 10) : null;
-  let downloadedBytes = 0;
-
-  const fileStream = fs.createWriteStream(tmpPath);
-  const reader = response.body.getReader();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const writeOk = fileStream.write(value);
-      if (!writeOk) {
-        await new Promise<void>((resolve) => fileStream.once('drain', resolve));
-      }
-      downloadedBytes += value.byteLength;
-      renderProgress(downloadedBytes, totalBytes);
+    const response = await fetch(url, {
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Download failed: HTTP ${response.status} ${response.statusText}`,
+      );
     }
+    if (!response.body) {
+      throw new Error('Download failed: No response body');
+    }
+
+    const contentLength = response.headers.get('content-length');
+    const totalBytes = contentLength ? parseInt(contentLength, 10) : null;
+    let downloadedBytes = 0;
+
+    const fileStream = fs.createWriteStream(tmpPath);
+    const reader = response.body.getReader();
+
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const writeOk = fileStream.write(value);
+        if (!writeOk) {
+          await new Promise<void>((resolve) =>
+            fileStream.once('drain', resolve),
+          );
+        }
+        downloadedBytes += value.byteLength;
+        renderProgress(downloadedBytes, totalBytes);
+      }
+    } finally {
+      fileStream.end();
+      process.stderr.write('\r' + ' '.repeat(80) + '\r');
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      fileStream.on('finish', resolve);
+      fileStream.on('error', reject);
+    });
+
+    fs.renameSync(tmpPath, destPath);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Download failed: Connection timeout (30s)');
+    }
+    throw error;
   } finally {
-    fileStream.end();
-    process.stderr.write('\r' + ' '.repeat(80) + '\r');
+    clearTimeout(timeoutId);
   }
-
-  await new Promise<void>((resolve, reject) => {
-    fileStream.on('finish', resolve);
-    fileStream.on('error', reject);
-  });
-
-  fs.renameSync(tmpPath, destPath);
 }
 
 export async function computeFileSha256(filePath: string): Promise<string> {

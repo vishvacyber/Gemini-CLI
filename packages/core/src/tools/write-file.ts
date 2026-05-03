@@ -133,13 +133,25 @@ export async function getCorrectedFileContent(
 
   const aggressiveUnescape = !isGemini3Model(config.getActiveModel());
 
-  correctedContent = await ensureCorrectFileContent(
-    proposedContent,
-    config.getBaseLlmClient(),
-    abortSignal,
-    config.getDisableLLMCorrection(),
-    aggressiveUnescape,
-  );
+  try {
+    correctedContent = await ensureCorrectFileContent(
+      proposedContent,
+      config.getBaseLlmClient(),
+      abortSignal,
+      config.getDisableLLMCorrection(),
+      aggressiveUnescape,
+    );
+    // [FIX] Fallback if AI correction returned empty content
+    if (!correctedContent || correctedContent.length === 0) {
+      debugLogger.warn(
+        'AI correction returned empty content, falling back to original',
+      );
+      correctedContent = proposedContent;
+    }
+  } catch (err) {
+    debugLogger.warn('AI correction failed, falling back to original', err);
+    correctedContent = proposedContent;
+  }
 
   return { originalContent, correctedContent, fileExists };
 }

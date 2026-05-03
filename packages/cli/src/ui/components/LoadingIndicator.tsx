@@ -68,7 +68,7 @@ export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({
         ? (thoughtLabel ?? thought.subject)
         : currentLoadingPhrase ||
           (streamingState === StreamingState.Responding
-            ? 'Thinking...'
+            ? `Thinking (${elapsedTime}s)...`
             : undefined);
 
   const cancelAndTimerContent =

@@ -9,6 +9,7 @@ import https from 'node:https';
 import zlib from 'node:zlib';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { EventEmitter } from 'node:events';
 import {
   CoreEvent,
@@ -139,13 +140,40 @@ export class ActivityLogger extends EventEmitter {
   >();
   private networkBufferIds: string[] = [];
   private consoleBuffer: Array<ConsoleLogPayload & { timestamp: number }> = [];
-  private readonly bufferLimit = 10;
+  private readonly bufferLimit = 50;
 
   static getInstance(): ActivityLogger {
     if (!ActivityLogger.instance) {
       ActivityLogger.instance = new ActivityLogger();
     }
     return ActivityLogger.instance;
+  }
+
+  private async flushConsoleBuffer() {
+    const logsToFlush = [...this.consoleBuffer];
+    this.consoleBuffer = [];
+    if (logsToFlush.length === 0) return;
+
+    try {
+      const logDir = path.join(os.homedir(), '.gemini', 'logs');
+      const logFile = path.join(logDir, 'latest.log');
+      await fs.promises.mkdir(logDir, { recursive: true });
+      const newLogs =
+        logsToFlush.map((l) => JSON.stringify(l)).join('\n') + '\n';
+      await fs.promises.appendFile(logFile, newLogs);
+
+      const stats = await fs.promises.stat(logFile);
+      if (stats.size > 1024 * 512) {
+        const content = await fs.promises.readFile(logFile, 'utf8');
+        const lines = content.split('\n').filter(Boolean);
+        if (lines.length > 500) {
+          const trimmed = lines.slice(-500).join('\n') + '\n';
+          await fs.promises.writeFile(logFile, trimmed);
+        }
+      }
+    } catch (err) {
+      process.stderr.write(`Failed to flush logs to file: ${err}\n`);
+    }
   }
 
   enableNetworkLogging() {
@@ -675,8 +703,8 @@ export class ActivityLogger extends EventEmitter {
   logConsole(payload: ConsoleLogPayload) {
     const enriched = { ...payload, timestamp: Date.now() };
     this.consoleBuffer.push(enriched);
-    if (this.consoleBuffer.length > this.bufferLimit) {
-      this.consoleBuffer.shift();
+    if (this.consoleBuffer.length >= this.bufferLimit) {
+      void this.flushConsoleBuffer();
     }
     this.emit('console', enriched);
   }
