@@ -149,7 +149,7 @@ export class ActivityLogger extends EventEmitter {
     return ActivityLogger.instance;
   }
 
-  private async flushConsoleBuffer() {
+  private flushConsoleBuffer() {
     const logsToFlush = [...this.consoleBuffer];
     this.consoleBuffer = [];
     if (logsToFlush.length === 0) return;
@@ -157,18 +157,20 @@ export class ActivityLogger extends EventEmitter {
     try {
       const logDir = path.join(os.homedir(), '.gemini', 'logs');
       const logFile = path.join(logDir, 'latest.log');
-      await fs.promises.mkdir(logDir, { recursive: true });
+      if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+      }
       const newLogs =
         logsToFlush.map((l) => JSON.stringify(l)).join('\n') + '\n';
-      await fs.promises.appendFile(logFile, newLogs);
+      fs.appendFileSync(logFile, newLogs);
 
-      const stats = await fs.promises.stat(logFile);
+      const stats = fs.statSync(logFile);
       if (stats.size > 1024 * 512) {
-        const content = await fs.promises.readFile(logFile, 'utf8');
+        const content = fs.readFileSync(logFile, 'utf8');
         const lines = content.split('\n').filter(Boolean);
         if (lines.length > 500) {
           const trimmed = lines.slice(-500).join('\n') + '\n';
-          await fs.promises.writeFile(logFile, trimmed);
+          fs.writeFileSync(logFile, trimmed);
         }
       }
     } catch (err) {
