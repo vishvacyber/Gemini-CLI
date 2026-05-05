@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @license
  * Copyright 2025 Google LLC
  * SPDX-License-Identifier: Apache-2.0
@@ -140,11 +140,14 @@ export class ActivityLogger extends EventEmitter {
   >();
   private networkBufferIds: string[] = [];
   private consoleBuffer: Array<ConsoleLogPayload & { timestamp: number }> = [];
-  private readonly bufferLimit = 50;
+  private readonly bufferLimit = 1;
 
   static getInstance(): ActivityLogger {
     if (!ActivityLogger.instance) {
       ActivityLogger.instance = new ActivityLogger();
+      process.on('exit', () => {
+        ActivityLogger.instance.flushConsoleBuffer();
+      });
     }
     return ActivityLogger.instance;
   }
@@ -1060,3 +1063,4 @@ export function addNetworkTransport(
   const capture = ActivityLogger.getInstance();
   setupNetworkLogging(capture, host, port, config, onReconnectFailed);
 }
+

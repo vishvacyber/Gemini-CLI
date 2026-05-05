@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @license
  * Copyright 2025 Google LLC
  * SPDX-License-Identifier: Apache-2.0
@@ -692,7 +692,15 @@ export class LocalAgentExecutor<TOutput extends z.ZodTypeAny> {
             break; // Exit the loop for *any* stop reason.
           }
 
+          const anyQuotaError =
+            turnResult.status === 'continue' &&
+            turnResult.nextMessage.parts.some((p) => {
+              const err = p.functionResponse?.response?.error;
+              return err && (typeof err === 'string' && (err.includes('429') || err.includes('Quota') || err.includes('Too Many Requests') || err.includes('capacity available')));
+            });
+
           const allToolsFailed =
+            !anyQuotaError &&
             turnResult.status === 'continue' &&
             turnResult.nextMessage.parts.every(
               (p) =>
@@ -972,81 +980,101 @@ export class LocalAgentExecutor<TOutput extends z.ZodTypeAny> {
       });
     const requestedModel = resolvedConfig.model;
 
-    let modelToUse: string;
-    if (isAutoModel(requestedModel)) {
-      // TODO(joshualitt): This try / catch is inconsistent with the routing
-      // behavior for the main agent. Ideally, we would have a universal
-      // policy for routing failure. Given routing failure does not necessarily
-      // mean generation will fail, we may want to share this logic with
-      // other places we use model routing.
-      try {
-        const routingContext: RoutingContext = {
-          history: chat.getHistory(/*curated=*/ true),
-          request: message.parts || [],
-          signal,
-          requestedModel,
-        };
-        const router = this.context.config.getModelRouterService();
-        const decision = await router.route(routingContext);
-        modelToUse = decision.model;
-      } catch (error) {
-        debugLogger.warn(`Error during model routing: ${error}`);
-        modelToUse = DEFAULT_GEMINI_MODEL;
-      }
-    } else {
-      modelToUse = requestedModel;
-    }
-
     const role = LlmRole.SUBAGENT;
+    let attempt = 0;
+    const maxAttempts = 10;
 
-    const responseStream = await chat.sendMessageStream(
-      {
-        model: modelToUse,
-        overrideScope: this.definition.name,
-      },
-      message.parts || [],
-      promptId,
-      signal,
-      role,
-    );
+    while (true) {
+      attempt++;
+      let modelToUse: string;
+      if (isAutoModel(requestedModel)) {
+        try {
+          const routingContext: RoutingContext = {
+            history: chat.getHistory(/*curated=*/ true),
+            request: message.parts || [],
+            signal,
+            requestedModel,
+          };
+          const router = this.context.config.getModelRouterService();
+          const decision = await router.route(routingContext);
+          modelToUse = decision.model;
+        } catch (error) {
+          debugLogger.warn(`Error during model routing: ${error}`);
+          modelToUse = DEFAULT_GEMINI_MODEL;
+        }
+      } else {
+        modelToUse = requestedModel;
+      }
 
-    const functionCalls: FunctionCall[] = [];
-    let textResponse = '';
-
-    for await (const resp of responseStream) {
-      if (signal.aborted) break;
-
-      if (resp.type === StreamEventType.CHUNK) {
-        const chunk = resp.value;
-        const parts = chunk.candidates?.[0]?.content?.parts;
-
-        // Extract and emit any subject "thought" content from the model.
-        const { subject } = parseThought(
-          parts?.find((p) => p.thought)?.text || '',
+      try {
+        const responseStream = await chat.sendMessageStream(
+          {
+            model: modelToUse,
+            overrideScope: this.definition.name,
+          },
+          message.parts || [],
+          promptId,
+          signal,
+          role,
         );
-        if (subject) {
-          this.emitActivity('THOUGHT_CHUNK', { text: subject });
+
+        const functionCalls: FunctionCall[] = [];
+        let textResponse = '';
+
+        for await (const resp of responseStream) {
+          if (signal.aborted) break;
+
+          if (resp.type === StreamEventType.CHUNK) {
+            const chunk = resp.value;
+            const parts = chunk.candidates?.[0]?.content?.parts;
+
+            // Extract and emit any subject "thought" content from the model.
+            const { subject } = parseThought(
+              parts?.find((p) => p.thought)?.text || '',
+            );
+            if (subject) {
+              this.emitActivity('THOUGHT_CHUNK', { text: subject });
+            }
+
+            // Collect any function calls requested by the model.
+            if (chunk.functionCalls) {
+              functionCalls.push(...chunk.functionCalls);
+            }
+
+            // Handle text response (non-thought text)
+            const text =
+              parts
+                ?.filter((p) => !p.thought && p.text)
+                .map((p) => p.text)
+                .join('') || '';
+
+            if (text) {
+              textResponse += text;
+            }
+          }
         }
 
-        // Collect any function calls requested by the model.
-        if (chunk.functionCalls) {
-          functionCalls.push(...chunk.functionCalls);
-        }
+        return { functionCalls, textResponse, modelToUse };
+      } catch (error: any) {
+        if (signal.aborted) throw error;
 
-        // Handle text response (non-thought text)
-        const text =
-          parts
-            ?.filter((p) => !p.thought && p.text)
-            .map((p) => p.text)
-            .join('') || '';
+        const isQuotaError = error?.name === 'RetryableQuotaError' ||
+                             (error?.message && (error.message.includes('429') || 
+                              error.message.includes('Quota') || 
+                              error.message.includes('Too Many Requests') || 
+                              error.message.includes('capacity available')));
 
-        if (text) {
-          textResponse += text;
+        if (isQuotaError && attempt < maxAttempts) {
+          const delayMs = error?.retryDelayMs || (Math.pow(2, attempt) * 1000) + (Math.random() * 1000);
+          this.emitActivity('THOUGHT_CHUNK', { text: `[API Error] 429/Capacity limit. Retrying in ${Math.round(delayMs/1000)}s... (Attempt ${attempt}/${maxAttempts})` });
+          debugLogger.warn(`Model API error (429/Capacity). Retrying in ${delayMs}ms...: ${error?.message}`);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
         }
+        
+        throw error;
       }
     }
-
-    return { functionCalls, textResponse, modelToUse };
   }
 
   /** Initializes a `GeminiChat` instance for the agent run. */
@@ -1517,3 +1545,4 @@ Important Rules:
     return { args: {} };
   }
 }
+
