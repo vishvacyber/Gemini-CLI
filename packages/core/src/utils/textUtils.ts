@@ -26,21 +26,100 @@ export function safeLiteralReplace(
 }
 
 /**
+ * Strips ANSI/VT escape sequences from a raw byte buffer.
+ *
+ * Handles:
+ *  - CSI sequences:  ESC [ ... <final byte 0x40-0x7E>
+ *  - OSC sequences:  ESC ] ... (ST | BEL)   where ST = ESC \
+ *  - Simple two-byte sequences: ESC <0x40-0x5F>
+ *
+ * Returns a new Buffer with escape sequences removed.
+ */
+export function stripAnsiFromBuffer(data: Buffer): Buffer {
+  const out: number[] = [];
+  const len = data.length;
+  let i = 0;
+
+  while (i < len) {
+    if (data[i] === 0x1b) {
+      // ESC detected
+      if (i + 1 < len) {
+        const next = data[i + 1];
+        if (next === 0x5b) {
+          // CSI: ESC [ ... <final byte 0x40-0x7E>
+          i += 2;
+          while (i < len && (data[i] < 0x40 || data[i] > 0x7e)) {
+            i++;
+          }
+          if (i < len) i++; // skip the final byte
+          continue;
+        } else if (next === 0x5d) {
+          // OSC: ESC ] ... terminated by BEL (0x07) or ST (ESC \)
+          i += 2;
+          while (i < len) {
+            if (data[i] === 0x07) {
+              i++;
+              break;
+            }
+            if (data[i] === 0x1b && i + 1 < len && data[i + 1] === 0x5c) {
+              i += 2;
+              break;
+            }
+            i++;
+          }
+          continue;
+        } else if (next >= 0x40 && next <= 0x5f) {
+          // Simple two-byte escape: ESC <0x40-0x5F>
+          i += 2;
+          continue;
+        }
+      }
+      // Lone ESC at end of buffer — skip it
+      i++;
+      continue;
+    }
+    out.push(data[i]);
+    i++;
+  }
+
+  return Buffer.from(out);
+}
+
+/**
  * Checks if a Buffer is likely binary by testing for the presence of a NULL byte.
  * The presence of a NULL byte is a strong indicator that the data is not plain text.
  * @param data The Buffer to check.
  * @param sampleSize The number of bytes from the start of the buffer to test.
- * @returns True if a NULL byte is found, false otherwise.
+ * @param isPtyOutput When true, ANSI escape sequences are stripped before
+ *   checking and a null-byte ratio threshold is used instead of failing on
+ *   a single null byte.  This prevents false positives caused by node-pty
+ *   on Windows emitting VT control sequences that contain null bytes.
+ * @returns True if the data is likely binary, false otherwise.
  */
 export function isBinary(
   data: Buffer | null | undefined,
   sampleSize = 512,
+  isPtyOutput = false,
 ): boolean {
   if (!data) {
     return false;
   }
 
-  const sample = data.length > sampleSize ? data.subarray(0, sampleSize) : data;
+  let sample = data.length > sampleSize ? data.subarray(0, sampleSize) : data;
+
+  if (isPtyOutput) {
+    sample = stripAnsiFromBuffer(sample);
+    if (sample.length === 0) {
+      return false;
+    }
+    let nullCount = 0;
+    for (const byte of sample) {
+      if (byte === 0) {
+        nullCount++;
+      }
+    }
+    return nullCount / sample.length > 0.1;
+  }
 
   for (const byte of sample) {
     // The presence of a NULL byte (0x00) is one of the most reliable
