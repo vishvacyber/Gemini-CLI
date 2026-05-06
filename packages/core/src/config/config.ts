@@ -712,6 +712,7 @@ export interface ConfigParameters {
   disabledSkills?: string[];
   adminSkillsEnabled?: boolean;
   experimentalJitContext?: boolean;
+  enableEnhanceCommand?: boolean;
   autoDistillation?: boolean;
   experimentalMemoryV2?: boolean;
   experimentalAutoMemory?: boolean;
@@ -952,6 +953,7 @@ export class Config implements McpContext, AgentLoopContext {
   private readonly vertexAiRouting: VertexAiRoutingConfig | undefined;
 
   private readonly enableAgents: boolean;
+  private readonly enableEnhanceCommand: boolean;
   private agents: AgentSettings;
   private readonly enableEventDrivenScheduler: boolean;
   private readonly skillsSupport: boolean;
@@ -1118,6 +1120,7 @@ export class Config implements McpContext, AgentLoopContext {
     this.disableLoopDetection = params.disableLoopDetection ?? false;
     this._activeModel = params.model;
     this.enableAgents = params.enableAgents ?? true;
+    this.enableEnhanceCommand = params.enableEnhanceCommand ?? false;
     this.agents = params.agents ?? {};
     this.disableLLMCorrection = params.disableLLMCorrection ?? true;
     this.planEnabled = params.plan ?? true;
@@ -2990,6 +2993,10 @@ export class Config implements McpContext, AgentLoopContext {
 
   isPlanEnabled(): boolean {
     return this.planEnabled;
+  }
+
+  isEnhanceCommandEnabled(): boolean {
+    return this.enableEnhanceCommand;
   }
 
   isVoiceModeEnabled(): boolean {
