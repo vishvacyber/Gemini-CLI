@@ -3287,7 +3287,7 @@ export class Config implements McpContext, AgentLoopContext {
    */
   async getResolvedClassifierThreshold(): Promise<number> {
     const remoteValue = await this.getClassifierThreshold();
-    const defaultValue = 90;
+    const defaultValue = 50;
 
     if (
       remoteValue !== undefined &&

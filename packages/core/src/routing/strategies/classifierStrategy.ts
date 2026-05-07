@@ -25,7 +25,7 @@ import { LlmRole } from '../../telemetry/types.js';
 
 // The number of recent history turns to provide to the router for context.
 const HISTORY_TURNS_FOR_CONTEXT = 4;
-const HISTORY_SEARCH_WINDOW = 20;
+const HISTORY_SEARCH_WINDOW = 10;
 
 const FLASH_MODEL = 'flash';
 const PRO_MODEL = 'pro';
