@@ -205,7 +205,9 @@ export function renderPreamble(options?: PreambleOptions): string {
 
 export function renderCoreMandates(options?: CoreMandatesOptions): string {
   if (!options) return '';
-  const filenames = options.contextFilenames ?? [DEFAULT_CONTEXT_FILENAME];
+  const filenames = options.contextFilenames?.length
+    ? options.contextFilenames
+    : [DEFAULT_CONTEXT_FILENAME];
   const formattedFilenames =
     filenames.length > 1
       ? filenames
@@ -526,7 +528,9 @@ export function renderUserMemory(
   if (typeof memory === 'string') {
     const trimmed = memory.trim();
     if (trimmed.length === 0) return '';
-    const filenames = contextFilenames ?? [DEFAULT_CONTEXT_FILENAME];
+    const filenames = contextFilenames?.length
+      ? contextFilenames
+      : [DEFAULT_CONTEXT_FILENAME];
     const formattedHeader = filenames.join(', ');
     return `
 # Contextual Instructions (${formattedHeader})
