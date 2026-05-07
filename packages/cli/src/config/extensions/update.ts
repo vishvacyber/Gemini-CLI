@@ -100,25 +100,17 @@ export async function updateExtension(
   const originalVersion = extension.version;
 
   const tempDir = await ExtensionStorage.createTmpDir();
+  let backupSuccessful = false;
   try {
+    await copyExtension(extension.path, tempDir);
+    backupSuccessful = true;
     const previousExtensionConfig = await extensionManager.loadExtensionConfig(
       extension.path,
     );
-    let updatedExtension: GeminiCLIExtension;
-    try {
-      updatedExtension = await extensionManager.installOrUpdateExtension(
-        installMetadata,
-        previousExtensionConfig,
-      );
-    } catch (e) {
-      dispatchExtensionStateUpdate({
-        type: 'SET_STATE',
-        payload: { name: extension.name, state: ExtensionUpdateState.ERROR },
-      });
-      throw new Error(
-        `Updated extension not found after installation, got error:\n${e}`,
-      );
-    }
+    const updatedExtension = await extensionManager.installOrUpdateExtension(
+      installMetadata,
+      previousExtensionConfig,
+    );
     const updatedVersion = updatedExtension.version;
     dispatchExtensionStateUpdate({
       type: 'SET_STATE',
@@ -136,14 +128,20 @@ export async function updateExtension(
     };
   } catch (e) {
     debugLogger.error(
-      `Error updating extension, rolling back. ${getErrorMessage(e)}`,
+      backupSuccessful
+        ? `Error updating extension, rolling back. ${getErrorMessage(e)}`
+        : `Error backing up extension before update. ${getErrorMessage(e)}`,
     );
     dispatchExtensionStateUpdate({
       type: 'SET_STATE',
       payload: { name: extension.name, state: ExtensionUpdateState.ERROR },
     });
-    await copyExtension(tempDir, extension.path);
-    throw e;
+    if (backupSuccessful) {
+      await copyExtension(tempDir, extension.path);
+    }
+    throw new Error(
+      `Failed to update extension ${extension.name}: ${getErrorMessage(e)}`,
+    );
   } finally {
     await fs.promises.rm(tempDir, { recursive: true, force: true });
   }

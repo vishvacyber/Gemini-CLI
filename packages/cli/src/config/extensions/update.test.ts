@@ -190,6 +190,10 @@ describe('Extension Update Logic', () => {
         originalVersion: '1.0.0',
         updatedVersion: '1.1.0',
       });
+      expect(copyExtension).toHaveBeenCalledWith(
+        mockExtension.path,
+        '/tmp/mock-dir',
+      );
       expect(fs.promises.rm).toHaveBeenCalledWith('/tmp/mock-dir', {
         recursive: true,
         force: true,
@@ -293,12 +297,53 @@ describe('Extension Update Logic', () => {
           ExtensionUpdateState.UPDATE_AVAILABLE,
           mockDispatch,
         ),
-      ).rejects.toThrow('Updated extension not found after installation');
+      ).rejects.toThrow(
+        'Failed to update extension test-extension: Install failed',
+      );
 
+      expect(copyExtension).toHaveBeenCalledWith(
+        mockExtension.path,
+        '/tmp/mock-dir',
+      );
       expect(copyExtension).toHaveBeenCalledWith(
         '/tmp/mock-dir',
         mockExtension.path,
       );
+      expect(mockDispatch).toHaveBeenCalledWith({
+        type: 'SET_STATE',
+        payload: {
+          name: mockExtension.name,
+          state: ExtensionUpdateState.ERROR,
+        },
+      });
+      expect(fs.promises.rm).toHaveBeenCalled();
+    });
+
+    it('should not rollback if backing up the extension fails', async () => {
+      vi.mocked(copyExtension).mockRejectedValueOnce(
+        new Error('Backup failed'),
+      );
+
+      await expect(
+        updateExtension(
+          mockExtension,
+          mockExtensionManager,
+          ExtensionUpdateState.UPDATE_AVAILABLE,
+          mockDispatch,
+        ),
+      ).rejects.toThrow(
+        'Failed to update extension test-extension: Backup failed',
+      );
+
+      expect(copyExtension).toHaveBeenCalledTimes(1);
+      expect(copyExtension).toHaveBeenCalledWith(
+        mockExtension.path,
+        '/tmp/mock-dir',
+      );
+      expect(mockExtensionManager.loadExtensionConfig).not.toHaveBeenCalled();
+      expect(
+        mockExtensionManager.installOrUpdateExtension,
+      ).not.toHaveBeenCalled();
       expect(mockDispatch).toHaveBeenCalledWith({
         type: 'SET_STATE',
         payload: {
