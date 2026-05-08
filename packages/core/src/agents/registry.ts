@@ -297,6 +297,7 @@ export class AgentRegistry {
       const isContainerSandbox =
         !!sandboxType &&
         sandboxType !== 'sandbox-exec' &&
+        sandboxType !== 'windows-native' &&
         sandboxType !== 'sandbox:none';
       const sessionMode =
         browserConfig.customConfig.sessionMode ?? 'persistent';
