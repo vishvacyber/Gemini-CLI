@@ -855,6 +855,108 @@ function _doLoadSettings(workspaceDir: string): LoadedSettings {
     isWorkspaceTrusted(initialTrustCheckSettings as Settings, workspaceDir)
       .isTrusted ?? false;
 
+  // Auto-discover .mcp.json from project root (Claude Code / MCP-standard format).
+  // Security constraints: trusted workspaces only; no symlinks; size-capped;
+  // env-var-expanded; Zod-validated; trust field stripped (cannot be granted via project files).
+  // .gemini/settings.json mcpServers take precedence over .mcp.json.
+  if (isTrusted && !storage.isWorkspaceHomeDir()) {
+    const mcpJsonPath = path.join(workspaceDir, '.mcp.json');
+    const MAX_MCP_JSON_BYTES = 1024 * 1024; // 1 MiB
+    try {
+      let stat: fs.Stats | null = null;
+      try {
+        stat = fs.lstatSync(mcpJsonPath);
+      } catch {
+        // file does not exist
+      }
+      if (stat?.isFile()) {
+        if (stat.size > MAX_MCP_JSON_BYTES) {
+          settingsErrors.push({
+            message: `.mcp.json exceeds the 1 MiB size limit and was not loaded.`,
+            path: mcpJsonPath,
+            severity: 'warning',
+          });
+        } else {
+          const mcpJsonContent = fs.readFileSync(mcpJsonPath, 'utf-8');
+          const parsed = JSON.parse(stripJsonComments(mcpJsonContent)) as unknown;
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            !Array.isArray(parsed) &&
+            typeof (parsed as Record<string, unknown>).mcpServers === 'object' &&
+            (parsed as Record<string, unknown>).mcpServers !== null
+          ) {
+            const rawServers = (parsed as Record<string, unknown>)
+              .mcpServers as Record<string, unknown>;
+
+            // Filter prototype-poisoning keys before any spread
+            const DANGEROUS_KEYS = new Set([
+              '__proto__',
+              'constructor',
+              'prototype',
+            ]);
+            const safeServers: Record<string, unknown> = {};
+            for (const [key, val] of Object.entries(rawServers)) {
+              if (!DANGEROUS_KEYS.has(key)) {
+                safeServers[key] = val;
+              }
+            }
+
+            // Expand environment variables (same pipeline as settings.json)
+            const expandedServers = resolveEnvVarsInObject(safeServers);
+
+            // Validate against the settings schema
+            const validationResult = validateSettings({
+              mcpServers: expandedServers,
+            });
+            if (!validationResult.success && validationResult.error) {
+              settingsErrors.push({
+                message: formatValidationError(
+                  validationResult.error,
+                  mcpJsonPath,
+                ),
+                path: mcpJsonPath,
+                severity: 'warning',
+              });
+            }
+
+            const validatedServers = validationResult.success
+              ? (validationResult.data as Settings)?.mcpServers
+              : (expandedServers as Settings['mcpServers']);
+
+            if (validatedServers) {
+              // Strip the `trust` field: trust elevation cannot be granted via
+              // project-scoped files — only via user or system settings.
+              const sanitizedServers: Settings['mcpServers'] = {};
+              for (const [name, cfg] of Object.entries(validatedServers)) {
+                if (cfg) {
+                  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                  const { trust: _trust, ...rest } = cfg as typeof cfg & {
+                    trust?: unknown;
+                  };
+                  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+                  sanitizedServers[name] = rest as (typeof sanitizedServers)[string];
+                }
+              }
+
+              // Merge: .gemini/settings.json wins on name collision
+              workspaceSettings.mcpServers = {
+                ...sanitizedServers,
+                ...(workspaceSettings.mcpServers ?? {}),
+              };
+            }
+          }
+        }
+      }
+    } catch (err) {
+      settingsErrors.push({
+        message: `Failed to load .mcp.json: ${getErrorMessage(err)}`,
+        path: mcpJsonPath,
+        severity: 'warning',
+      });
+    }
+  }
+
   // Create a temporary merged settings object to pass to loadEnvironment.
   const tempMergedSettings = mergeSettings(
     systemSettings,
