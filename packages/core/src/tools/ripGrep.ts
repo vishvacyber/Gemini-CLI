@@ -30,7 +30,7 @@ import {
   COMMON_DIRECTORY_EXCLUDES,
 } from '../utils/ignorePatterns.js';
 import { FileDiscoveryService } from '../services/fileDiscoveryService.js';
-import { execStreaming } from '../utils/shell-utils.js';
+import { execStreaming, spawnAsync } from '../utils/shell-utils.js';
 import {
   DEFAULT_TOTAL_MAX_MATCHES,
   DEFAULT_SEARCH_TIMEOUT_MS,
@@ -59,6 +59,15 @@ export async function getRipgrepPath(): Promise<string | null> {
     if (await fileExists(candidate)) {
       return candidate;
     }
+  }
+
+  // Fallback: Check if ripgrep (rg) is available in the system PATH
+  try {
+    // Rely on spawnAsync's built-in error handling instead of manual which/where check
+    await spawnAsync('rg', ['--version']);
+    return 'rg';
+  } catch {
+    // Ripgrep not found in system PATH
   }
 
   return null;
