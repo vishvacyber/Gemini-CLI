@@ -5,6 +5,7 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
 import type {
   jsonSchemaValidator,
@@ -56,7 +57,7 @@ import { randomUUID } from 'node:crypto';
 import type { McpAuthProvider } from '../mcp/auth-provider.js';
 import { MCPOAuthProvider } from '../mcp/oauth-provider.js';
 import { MCPOAuthTokenStorage } from '../mcp/oauth-token-storage.js';
-import { OAuthUtils } from '../mcp/oauth-utils.js';
+import { OAuthUtils, FIVE_MIN_BUFFER_MS } from '../mcp/oauth-utils.js';
 import type { PromptRegistry } from '../prompts/prompt-registry.js';
 import {
   getErrorMessage,
@@ -82,6 +83,12 @@ import {
   type EnvironmentSanitizationConfig,
 } from '../services/environmentSanitization.js';
 import { expandEnvVars } from '../utils/envExpansion.js';
+import type {
+  OAuthClientInformation,
+  OAuthClientMetadata,
+  OAuthTokens,
+} from '@modelcontextprotocol/sdk/shared/auth.js';
+
 import {
   GEMINI_CLI_IDENTIFICATION_ENV_VAR,
   GEMINI_CLI_IDENTIFICATION_ENV_VAR_VALUE,
@@ -1024,6 +1031,104 @@ function createAuthProvider(
     return new GoogleCredentialProvider(mcpServerConfig);
   }
   return undefined;
+}
+
+class DynamicStoredOAuthProvider implements McpAuthProvider {
+  readonly redirectUrl = '';
+  readonly clientMetadata: OAuthClientMetadata = {
+    client_name: 'Gemini CLI (Stored OAuth)',
+    redirect_uris: [],
+    grant_types: [],
+    response_types: [],
+    token_endpoint_auth_method: 'none',
+  };
+
+  private clientInfo?: OAuthClientInformation;
+  private readonly tokenStorage = new MCPOAuthTokenStorage();
+  private readonly oauthProvider = new MCPOAuthProvider(this.tokenStorage);
+  private cachedToken?: OAuthTokens;
+  private tokenExpiryTime?: number;
+
+  constructor(
+    private readonly serverName: string,
+    private readonly serverConfig: MCPServerConfig,
+  ) {}
+
+  clientInformation(): OAuthClientInformation | undefined {
+    return this.clientInfo;
+  }
+
+  saveClientInformation(clientInformation: OAuthClientInformation): void {
+    this.clientInfo = clientInformation;
+  }
+
+  private isCachedTokenValid(): boolean {
+    return !!(
+      this.cachedToken?.access_token &&
+      this.tokenExpiryTime &&
+      Date.now() < this.tokenExpiryTime - FIVE_MIN_BUFFER_MS
+    );
+  }
+
+  async tokens(): Promise<OAuthTokens | undefined> {
+    if (this.isCachedTokenValid()) {
+      return this.cachedToken;
+    }
+
+    let token: string | null;
+
+    if (this.serverConfig.oauth?.enabled && this.serverConfig.oauth) {
+      token = await this.oauthProvider.getValidToken(
+        this.serverName,
+        this.serverConfig.oauth,
+      );
+    } else {
+      // Avoid redundant storage reads in fallback path by reading credentials once
+      // and reusing that clientId with getValidToken.
+      const credentials = await this.tokenStorage.getCredentials(
+        this.serverName,
+      );
+      if (!credentials) {
+        this.cachedToken = undefined;
+        this.tokenExpiryTime = undefined;
+        return undefined;
+      }
+
+      token = await this.oauthProvider.getValidToken(this.serverName, {
+        clientId: credentials.clientId,
+      });
+    }
+
+    if (!token) {
+      this.cachedToken = undefined;
+      this.tokenExpiryTime = undefined;
+      return undefined;
+    }
+
+    this.cachedToken = { access_token: token, token_type: 'Bearer' };
+    this.tokenExpiryTime =
+      OAuthUtils.parseTokenExpiry(token) ?? Date.now() + 60 * 60 * 1000;
+
+    return this.cachedToken;
+  }
+
+  saveTokens(_tokens: OAuthTokens): void {}
+  redirectToAuthorization(_authorizationUrl: URL): void {}
+  saveCodeVerifier(_codeVerifier: string): void {}
+  codeVerifier(): string {
+    return '';
+  }
+}
+
+/**
+ * Creates an OAuth token provider for transports so token lookup/refresh happens
+ * at request/auth time instead of freezing a single token at transport creation.
+ */
+function createDynamicOAuthTokenProvider(
+  mcpServerName: string,
+  mcpServerConfig: MCPServerConfig,
+): McpAuthProvider {
+  return new DynamicStoredOAuthProvider(mcpServerName, mcpServerConfig);
 }
 
 /**
@@ -2189,17 +2294,18 @@ export async function createTransport(
     }
   }
   if (mcpServerConfig.httpUrl || mcpServerConfig.url) {
-    const authProvider = createAuthProvider(mcpServerConfig);
+    let authProvider = createAuthProvider(mcpServerConfig);
     const headers: Record<string, string> =
       (await authProvider?.getRequestHeaders?.()) ?? {};
 
     if (authProvider === undefined) {
-      // Check if we have OAuth configuration or stored tokens
-      let accessToken: string | null = null;
+      let shouldUseDynamicOAuthProvider = false;
+
       if (mcpServerConfig.oauth?.enabled && mcpServerConfig.oauth) {
+        shouldUseDynamicOAuthProvider = true;
         const tokenStorage = new MCPOAuthTokenStorage();
         const mcpAuthProvider = new MCPOAuthProvider(tokenStorage);
-        accessToken = await mcpAuthProvider.getValidToken(
+        const accessToken = await mcpAuthProvider.getValidToken(
           mcpServerName,
           mcpServerConfig.oauth,
         );
@@ -2214,16 +2320,22 @@ export async function createTransport(
           );
         }
       } else {
-        // Check if we have stored OAuth tokens for this server (from previous authentication)
-        accessToken = await getStoredOAuthToken(mcpServerName);
-        if (accessToken) {
+        // Stored OAuth credentials imply we should use dynamic token retrieval.
+        const tokenStorage = new MCPOAuthTokenStorage();
+        const credentials = await tokenStorage.getCredentials(mcpServerName);
+        shouldUseDynamicOAuthProvider = !!credentials;
+        if (shouldUseDynamicOAuthProvider) {
           debugLogger.log(
             `Found stored OAuth token for server '${mcpServerName}'`,
           );
         }
       }
-      if (accessToken) {
-        headers['Authorization'] = `Bearer ${accessToken}`;
+
+      if (shouldUseDynamicOAuthProvider) {
+        authProvider = createDynamicOAuthTokenProvider(
+          mcpServerName,
+          mcpServerConfig,
+        );
       }
     }
 
