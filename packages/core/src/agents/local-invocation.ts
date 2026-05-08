@@ -12,6 +12,7 @@ import {
   type ToolResult,
   type ExecuteOptions,
 } from '../tools/tools.js';
+import { ToolErrorType } from '../tools/tool-error.js';
 import {
   type LocalAgentDefinition,
   type AgentInputs,
@@ -374,8 +375,10 @@ ${output.result}`;
         llmContent: `Subagent '${this.definition.name}' failed. Error: ${errorMessage}`,
         returnDisplay: progress,
         data: executor ? { agentId: executor.agentId } : undefined,
-        // We omit the 'error' property so that the UI renders our rich returnDisplay
-        // instead of the raw error message. The llmContent still informs the agent of the failure.
+        error: {
+          message: errorMessage,
+          type: ToolErrorType.EXECUTION_FAILED,
+        },
       };
     }
   }

@@ -1127,6 +1127,13 @@ export class GeminiClient {
         retryFetchErrors: this.config.getRetryFetchErrors(),
         getAvailabilityContext,
         onRetry: (attempt, error, delayMs) => {
+          const isModelChanged =
+            getDisplayString(currentAttemptModel) !==
+            getDisplayString(modelConfigKey.model);
+          const message = isModelChanged
+            ? `Switching to ${getDisplayString(currentAttemptModel)} due to availability issues...`
+            : undefined;
+
           coreEvents.emitRetryAttempt({
             attempt,
             maxAttempts:
@@ -1134,6 +1141,7 @@ export class GeminiClient {
             delayMs,
             error: error instanceof Error ? error.message : String(error),
             model: getDisplayString(currentAttemptModel),
+            message,
           });
         },
       });

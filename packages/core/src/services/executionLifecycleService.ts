@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { spawnSync } from 'node:child_process';
 import type { InjectionService } from '../config/injectionService.js';
 import type { AnsiOutput } from '../utils/terminalSerializer.js';
 import { debugLogger } from '../utils/debugLogger.js';
@@ -573,6 +574,21 @@ export class ExecutionLifecycleService {
   static kill(executionId: number): void {
     const execution = this.activeExecutions.get(executionId);
     if (!execution) {
+      // [FIX] Physical kill for orphaned processes on Windows
+      if (
+        process.platform === 'win32' &&
+        executionId < NON_PROCESS_EXECUTION_ID_START
+      ) {
+        try {
+          spawnSync('taskkill', ['/F', '/T', '/PID', executionId.toString()], {
+            stdio: 'ignore',
+          });
+        } catch (e) {
+          debugLogger.error(
+            `Failed to physically kill process ${executionId}: ${e}`,
+          );
+        }
+      }
       return;
     }
 
@@ -581,7 +597,24 @@ export class ExecutionLifecycleService {
     }
 
     if (execution.kind === 'external') {
-      execution.kill?.();
+      if (execution.kill) {
+        execution.kill();
+      }
+      // [FIX] Ensure physical kill on Windows for external executions
+      if (
+        process.platform === 'win32' &&
+        executionId < NON_PROCESS_EXECUTION_ID_START
+      ) {
+        try {
+          spawnSync('taskkill', ['/F', '/T', '/PID', executionId.toString()], {
+            stdio: 'ignore',
+          });
+        } catch (e) {
+          debugLogger.error(
+            `Failed to physically kill process ${executionId}: ${e}`,
+          );
+        }
+      }
     }
 
     this.completeWithResult(

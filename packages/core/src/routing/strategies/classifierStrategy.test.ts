@@ -306,7 +306,7 @@ describe('ClassifierStrategy', () => {
     const contents = generateJsonCall.contents;
 
     // Manually calculate what the history should be
-    const HISTORY_SEARCH_WINDOW = 20;
+    const HISTORY_SEARCH_WINDOW = 10;
     const HISTORY_TURNS_FOR_CONTEXT = 4;
     const historySlice = longHistory.slice(-HISTORY_SEARCH_WINDOW);
     const cleanHistory = historySlice.filter(

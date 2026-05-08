@@ -238,7 +238,7 @@ export function createAvailabilityContextProvider(
     const currentModel = modelGetter();
 
     // Resolve the chain for the specific model we are attempting.
-    const chain = resolvePolicyChain(config, currentModel);
+    const chain = resolvePolicyChain(config, currentModel, true);
     const policy = chain.find((p) => p.model === currentModel);
 
     return policy ? { service, policy } : undefined;
@@ -253,7 +253,7 @@ export function selectModelForAvailability(
   config: Config,
   requestedModel: string,
 ): ModelSelectionResult {
-  const chain = resolvePolicyChain(config, requestedModel);
+  const chain = resolvePolicyChain(config, requestedModel, true);
   const selection = config
     .getModelAvailabilityService()
     .selectFirstAvailable(chain.map((p) => p.model));
@@ -302,7 +302,7 @@ export function applyModelSelection(
     config.getModelAvailabilityService().consumeStickyAttempt(finalModel);
   }
 
-  const chain = resolvePolicyChain(config, finalModel);
+  const chain = resolvePolicyChain(config, finalModel, true);
   const policy = chain.find((p) => p.model === finalModel);
 
   return {

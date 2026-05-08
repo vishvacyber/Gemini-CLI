@@ -193,30 +193,41 @@ export class Scheduler {
     request: ToolCallRequestInfo | ToolCallRequestInfo[],
     signal: AbortSignal,
   ): Promise<CompletedToolCall[]> {
-    return runInDevTraceSpan(
-      {
-        operation: GeminiCliOperation.ScheduleToolCalls,
-        logPrompts: this.context.config.getTelemetryLogPromptsEnabled(),
-        tracesEnabled: this.context.config.getTelemetryTracesEnabled(),
-        sessionId: this.context.config.getSessionId(),
-      },
-      async ({ metadata: spanMetadata }) => {
-        const requests = Array.isArray(request) ? request : [request];
-
-        spanMetadata.input = requests;
-
-        let toolCallResponse: CompletedToolCall[] = [];
-
-        if (this.isProcessing || this.state.isActive) {
-          toolCallResponse = await this._enqueueRequest(requests, signal);
-        } else {
-          toolCallResponse = await this._startBatch(requests, signal);
-        }
-
-        spanMetadata.output = toolCallResponse;
-        return toolCallResponse;
-      },
+    const SCHEDULER_TIMEOUT_MS = 60000;
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error('Scheduler timed out after 60s')),
+        SCHEDULER_TIMEOUT_MS,
+      ),
     );
+
+    return Promise.race([
+      runInDevTraceSpan(
+        {
+          operation: GeminiCliOperation.ScheduleToolCalls,
+          logPrompts: this.context.config.getTelemetryLogPromptsEnabled(),
+          tracesEnabled: this.context.config.getTelemetryTracesEnabled(),
+          sessionId: this.context.config.getSessionId(),
+        },
+        async ({ metadata: spanMetadata }) => {
+          const requests = Array.isArray(request) ? request : [request];
+
+          spanMetadata.input = requests;
+
+          let toolCallResponse: CompletedToolCall[] = [];
+
+          if (this.isProcessing || this.state.isActive) {
+            toolCallResponse = await this._enqueueRequest(requests, signal);
+          } else {
+            toolCallResponse = await this._startBatch(requests, signal);
+          }
+
+          spanMetadata.output = toolCallResponse;
+          return toolCallResponse;
+        },
+      ),
+      timeoutPromise,
+    ]);
   }
 
   private _enqueueRequest(
@@ -423,9 +434,16 @@ export class Scheduler {
   // --- Phase 2: Processing Loop ---
 
   private async _processQueue(signal: AbortSignal): Promise<void> {
+    let loopCount = 0;
     while (this.state.queueLength > 0 || this.state.isActive) {
+      if (loopCount++ >= 1000) {
+        throw new Error('Scheduler loop limit reached (1000 iterations)');
+      }
       const shouldContinue = await this._processNextItem(signal);
       if (!shouldContinue) break;
+
+      // Yield to the event loop to prevent starvation.
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
 
