@@ -920,11 +920,26 @@ export class GeminiChat {
         for (let j = 0; j < newParts.length; j++) {
           const part = newParts[j];
           if (part.functionCall) {
-            if (!part.thoughtSignature) {
+            const p = part as typeof part & {
+              thought_signature?: string;
+              thoughtSignature?: string;
+            };
+            if (!p.thought_signature && !p.thoughtSignature) {
+              const { thoughtSignature: _, ...rest } = p;
               newParts[j] = {
-                ...part,
-                thoughtSignature: SYNTHETIC_THOUGHT_SIGNATURE,
+                ...rest,
+                thought_signature: SYNTHETIC_THOUGHT_SIGNATURE,
+              } as typeof p;
+              newContents[i] = {
+                ...content,
+                parts: newParts,
               };
+            } else if (p.thoughtSignature && !p.thought_signature) {
+              const { thoughtSignature, ...rest } = p;
+              newParts[j] = {
+                ...rest,
+                thought_signature: thoughtSignature,
+              } as typeof p;
               newContents[i] = {
                 ...content,
                 parts: newParts,
