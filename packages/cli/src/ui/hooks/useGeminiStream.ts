@@ -34,6 +34,7 @@ import {
   CoreEvent,
   CoreToolCallStatus,
   buildUserSteeringHintPrompt,
+  generateSteeringAckMessage,
   GeminiCliOperation,
   getPlanModeExitMessage,
   isBackgroundExecutionData,
@@ -2025,6 +2026,7 @@ export const useGeminiStream = (
         (toolCall) => toolCall.response.responseParts,
       );
 
+      let pendingSteeringAck: { hintText: string } | null = null;
       if (consumeUserHint) {
         const userHint = consumeUserHint();
         if (userHint && userHint.trim().length > 0) {
@@ -2032,6 +2034,7 @@ export const useGeminiStream = (
           responsesToSend.unshift({
             text: buildUserSteeringHintPrompt(hintText),
           });
+          pendingSteeringAck = { hintText };
         }
       }
 
@@ -2048,6 +2051,38 @@ export const useGeminiStream = (
       // Don't continue if model was switched due to quota error
       if (modelSwitchedFromQuotaError) {
         return;
+      }
+
+      if (pendingSteeringAck) {
+        const { hintText } = pendingSteeringAck;
+        // Defer until after submitQuery below has installed the new
+        // turn's AbortController and assigned its own message timestamp.
+        // Capturing ackTimestamp here (inside the microtask) ensures it
+        // sorts after the hint in the history view.
+        queueMicrotask(() => {
+          const ackTimestamp = Date.now();
+          const signal = abortControllerRef.current?.signal;
+          void generateSteeringAckMessage(config.getBaseLlmClient(), hintText, {
+            signal,
+          })
+            .then((ackText) => {
+              if (signal?.aborted || turnCancelledRef.current) return;
+              addItem(
+                {
+                  type: MessageType.INFO,
+                  icon: '· ',
+                  color: theme.text.secondary,
+                  marginBottom: 1,
+                  text: ackText,
+                } as HistoryItemInfo,
+                ackTimestamp,
+              );
+            })
+            .catch((err) => {
+              if (err?.name === 'AbortError') return;
+              // Silently ignore — steering ack is non-critical UI feedback.
+            });
+        });
       }
 
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
@@ -2072,6 +2107,7 @@ export const useGeminiStream = (
       maybeAddSuppressedToolErrorNote,
       maybeAddLowVerbosityFailureNote,
       setIsResponding,
+      config,
     ],
   );
 

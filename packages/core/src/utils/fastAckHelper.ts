@@ -57,11 +57,23 @@ export const USER_STEERING_INSTRUCTION =
   'Do not cancel/skip tasks unless the user explicitly cancels them. ' +
   'Acknowledge the steering briefly and state the course correction.';
 
-/**
- * Wraps user input in XML-like tags to mitigate prompt injection.
- */
+const XML_CLOSING_TAG_RE = /<\/([^>]+)>/gi;
+const CONTEXT_BREAKER_RE = /\]/g;
+const NEWLINE_RE = /\r?\n/g;
+
+function sanitizeForWrapper(input: string): string {
+  return input
+    .replace(XML_CLOSING_TAG_RE, '<\\/$1>')
+    .replace(CONTEXT_BREAKER_RE, '')
+    .replace(NEWLINE_RE, ' ');
+}
+
 function wrapInput(input: string): string {
-  return `<user_input>\n${input}\n</user_input>`;
+  return `<user_input>\n${sanitizeForWrapper(input)}\n</user_input>`;
+}
+
+function wrapBackgroundOutput(input: string): string {
+  return `<background_output>\n${sanitizeForWrapper(input)}\n</background_output>`;
 }
 
 export function buildUserSteeringHintPrompt(hintText: string): string {
@@ -88,7 +100,7 @@ const BACKGROUND_COMPLETION_INSTRUCTION =
  * Wraps untrusted output in XML tags with inline instructions to treat it as data.
  */
 export function formatBackgroundCompletionForModel(output: string): string {
-  return `Background execution update:\n<background_output>\n${output}\n</background_output>\n\n${BACKGROUND_COMPLETION_INSTRUCTION}`;
+  return `Background execution update:\n${wrapBackgroundOutput(output)}\n\n${BACKGROUND_COMPLETION_INSTRUCTION}`;
 }
 
 const STEERING_ACK_INSTRUCTION =
@@ -113,14 +125,22 @@ function buildSteeringFallbackMessage(hintText: string): string {
 export async function generateSteeringAckMessage(
   llmClient: BaseLlmClient,
   hintText: string,
+  options?: { signal?: AbortSignal },
 ): Promise<string> {
   const fallbackText = buildSteeringFallbackMessage(hintText);
+
+  if (options?.signal?.aborted) {
+    return fallbackText;
+  }
 
   const abortController = new AbortController();
   const timeout = setTimeout(
     () => abortController.abort(),
     STEERING_ACK_TIMEOUT_MS,
   );
+
+  const onParentAbort = () => abortController.abort();
+  options?.signal?.addEventListener('abort', onParentAbort, { once: true });
 
   try {
     return await generateFastAckText(llmClient, {
@@ -134,6 +154,7 @@ export async function generateSteeringAckMessage(
     });
   } finally {
     clearTimeout(timeout);
+    options?.signal?.removeEventListener('abort', onParentAbort);
   }
 }
 

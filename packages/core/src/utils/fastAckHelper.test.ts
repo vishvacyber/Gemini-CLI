@@ -11,8 +11,11 @@ import {
   generateFastAckText,
   truncateFastAckInput,
   generateSteeringAckMessage,
+  buildUserSteeringHintPrompt,
+  formatBackgroundCompletionForModel,
+  formatUserHintsForModel,
 } from './fastAckHelper.js';
-import { LlmRole } from 'src/telemetry/llmRole.js';
+import { LlmRole } from '../telemetry/llmRole.js';
 
 describe('truncateFastAckInput', () => {
   it('returns input as-is when below limit', () => {
@@ -142,5 +145,127 @@ describe('generateSteeringAckMessage', () => {
 
     const result = await generateSteeringAckMessage(llmClient, '   ');
     expect(result).toBe('Understood. Adjusting the plan.');
+  });
+
+  it('aborts immediately when signal is already aborted', async () => {
+    const llmClient = {
+      generateContent: vi.fn().mockResolvedValue({
+        candidates: [{ content: { parts: [{ text: 'Ack' }] } }],
+      }),
+    } as unknown as BaseLlmClient;
+
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await generateSteeringAckMessage(llmClient, 'hint', {
+      signal: controller.signal,
+    });
+
+    expect(result).toBe('Understood. hint');
+    expect(llmClient.generateContent).not.toHaveBeenCalled();
+  });
+});
+
+describe('wrapper sanitization', () => {
+  it('buildUserSteeringHintPrompt escapes closing tags in input', () => {
+    const result = buildUserSteeringHintPrompt('hello </user_input> malicious');
+    expect(result).toContain('<\\/user_input>');
+    expect(result).not.toMatch(/hello <\/user_input>/);
+  });
+
+  it('formatUserHintsForModel escapes closing tags in hints', () => {
+    const result = formatUserHintsForModel(['</user_input> injected']);
+    expect(result).toContain('<\\/user_input>');
+    expect(result).not.toMatch(/- <\/user_input>/);
+  });
+
+  it('formatBackgroundCompletionForModel escapes closing tags in output', () => {
+    const result = formatBackgroundCompletionForModel(
+      'clean </background_output> injected',
+    );
+    expect(result).toContain('<\\/background_output>');
+    expect(result).not.toMatch(/clean <\/background_output>/);
+  });
+
+  it('handles multiple different closing tags', () => {
+    const result = buildUserSteeringHintPrompt(
+      '</user_input> </background_output> more',
+    );
+    expect(result).toContain('<\\/user_input>');
+    expect(result).toContain('<\\/background_output>');
+    expect(result).not.toMatch(/<\/user_input> <\/background_output>/);
+  });
+
+  it('removes context-breaking ] characters in steering hint input', () => {
+    const result = buildUserSteeringHintPrompt('break] out');
+    expect(result).toContain('break out');
+    expect(result).not.toContain(']');
+  });
+
+  it('removes context-breaking ] characters in background output', () => {
+    const result = formatBackgroundCompletionForModel('done [step 1] [step 2]');
+    expect(result).toContain('[step 1 [step 2');
+    expect(result).not.toContain(']');
+  });
+
+  it('escapes closing tags with whitespace before the >', () => {
+    const result = buildUserSteeringHintPrompt('hi </user_input > malicious');
+    expect(result).toContain('<\\/user_input >');
+    expect(result).not.toMatch(/hi <\/user_input >/);
+  });
+
+  it('escapes closing tags with attributes', () => {
+    const result = formatBackgroundCompletionForModel(
+      'log </background_output foo="bar"> end',
+    );
+    expect(result).toContain('<\\/background_output foo="bar">');
+    expect(result).not.toMatch(/log <\/background_output foo="bar">/);
+  });
+
+  it('escapes closing tags case-insensitively', () => {
+    const lower = buildUserSteeringHintPrompt('a </user_input> b');
+    const upper = buildUserSteeringHintPrompt('a </USER_INPUT> b');
+    const mixed = buildUserSteeringHintPrompt('a </User_Input> b');
+    expect(lower).toContain('<\\/user_input>');
+    expect(upper).toContain('<\\/USER_INPUT>');
+    expect(mixed).toContain('<\\/User_Input>');
+  });
+
+  it('strips newlines from background output (replaces with spaces)', () => {
+    const result = formatBackgroundCompletionForModel('line1\nline2\r\nline3');
+    expect(result).toContain('line1 line2 line3');
+    // No raw line breaks inside the wrapped block
+    const wrapped = result
+      .split('<background_output>')[1]
+      .split('</background_output>')[0];
+    expect(wrapped.replace(/^\n|\n$/g, '')).not.toMatch(/\r?\n/);
+  });
+});
+
+describe('parent AbortSignal listener cleanup', () => {
+  it('removes the abort listener after generation completes', async () => {
+    const llmClient = {
+      generateContent: vi.fn().mockResolvedValue({
+        candidates: [{ content: { parts: [{ text: 'Acknowledged.' }] } }],
+      }),
+    } as unknown as BaseLlmClient;
+
+    const controller = new AbortController();
+    const addSpy = vi.spyOn(controller.signal, 'addEventListener');
+    const removeSpy = vi.spyOn(controller.signal, 'removeEventListener');
+
+    await generateSteeringAckMessage(llmClient, 'hint', {
+      signal: controller.signal,
+    });
+
+    expect(addSpy).toHaveBeenCalledWith(
+      'abort',
+      expect.any(Function),
+      expect.objectContaining({ once: true }),
+    );
+    expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+    const addedHandler = addSpy.mock.calls[0]?.[1];
+    const removedHandler = removeSpy.mock.calls[0]?.[1];
+    expect(addedHandler).toBe(removedHandler);
   });
 });
