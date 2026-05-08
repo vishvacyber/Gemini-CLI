@@ -1009,6 +1009,7 @@ export async function loadCliConfig(
     excludeTools,
     toolDiscoveryCommand: settings.tools?.discoveryCommand,
     toolCallCommand: settings.tools?.callCommand,
+    vertexLocation: settings.vertexAi?.location ?? undefined,
     mcpServerCommand,
     mcpServers,
     mcpEnablementCallbacks,
@@ -1200,3 +1201,8 @@ async function resolveWorktreeSettings(
     baseSha: worktreeBaseSha,
   };
 }
+
+
+
+
+
