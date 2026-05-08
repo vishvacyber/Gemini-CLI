@@ -130,7 +130,7 @@ if (existsSync(extensionExamplesSrc)) {
 
 // 8. Copy https-proxy-agent for external dynamic import resolution (proxy support)
 // Uses require.resolve to locate packages regardless of monorepo hoisting.
-const pkgsToProcess = ['https-proxy-agent'];
+const pkgsToProcess = ['https-proxy-agent', 'http-proxy-agent'];
 const processed = new Set();
 
 for (let i = 0; i < pkgsToProcess.length; i++) {
