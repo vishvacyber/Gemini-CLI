@@ -20,6 +20,9 @@ import {
   coreEvents,
   getErrorType,
   getErrorMessage,
+  isAuthenticationError,
+  AuthType,
+  ExitCodes,
 } from '@google/gemini-cli-core';
 import { runSyncCleanup } from './cleanup.js';
 
@@ -58,20 +61,64 @@ function getNumericExitCode(errorCode: string | number): number {
 }
 
 /**
+ * Formats authentication errors for terminal display.
+ * This function uses a lenient sanitization approach, stripping ANSI escape codes 
+ * and control characters while preserving newlines and tabs to ensure 
+ * readability while preventing terminal injection.
+ */
+export function formatAuthError(error: unknown, authType?: string): string {
+  let reason = 'Invalid or missing API key';
+  if (error instanceof Error) {
+    reason = error.message;
+  } else if (typeof error === 'string') {
+    reason = error;
+  } else if (error && typeof error === 'object' && 'message' in error) {
+    reason = String((error as any).message);
+  }
+
+  const sanitizedReason = reason.replace(/[\x00-\x1F\x7F-\x9F]/g, (char) =>
+    char === '\n' || char === '\r' || char === '\t' ? char : ''
+  );
+
+  const fix = authType === 'google-cloud' 
+    ? '1. Run: gcloud auth application-default login' 
+    : '1. Set your API key:\n   export GEMINI_API_KEY=your_key_here\n\n2. Or login again:\n   gemini auth login';
+
+  return '❌ Authentication Failed\n\nReason: ' + sanitizedReason + '\n\nFix:\n' + fix;
+}
+
+/**
+ * Helper to detect if an error is authentication-related (401, 400 invalid key, or missing env var).
+ */
+export function isAuthRelatedError(error: unknown, customErrorCode?: string | number): boolean {
+  if (customErrorCode === ExitCodes.FATAL_AUTHENTICATION_ERROR) return true;
+  if (isAuthenticationError(error)) return true;
+  
+  const msg = getErrorMessage(error).toLowerCase();
+  return msg.includes('api key') && (msg.includes('not valid') || msg.includes('missing') || msg.includes('invalid'));
+}
+
+/**
  * Handles errors consistently for both JSON and text output formats.
  * In JSON mode, outputs formatted JSON error and exits.
  * In streaming JSON mode, emits a result event with error status.
- * In text mode, outputs error message and re-throws.
+ * In text mode, outputs error message and exits for fatal auth errors.
  */
 export function handleError(
   error: unknown,
   config: Config,
   customErrorCode?: string | number,
 ): never {
-  const errorMessage = parseAndFormatApiError(
+  const isAuthError = isAuthRelatedError(error, customErrorCode);
+
+  let errorMessage = parseAndFormatApiError(
     error,
     config.getContentGeneratorConfig()?.authType,
   );
+
+  if (isAuthError) {
+    errorMessage = formatAuthError(error, config.getContentGeneratorConfig()?.authType);
+  }
 
   if (config.getOutputFormat() === OutputFormat.STREAM_JSON) {
     const streamFormatter = new StreamJsonFormatter();
@@ -96,7 +143,7 @@ export function handleError(
     const errorCode = customErrorCode ?? extractErrorCode(error);
 
     const formattedError = formatter.formatError(
-      error instanceof Error ? error : new Error(getErrorMessage(error)),
+      new Error(errorMessage),
       errorCode,
       config.getSessionId(),
     );
@@ -105,6 +152,11 @@ export function handleError(
     runSyncCleanup();
     process.exit(getNumericExitCode(errorCode));
   } else {
+    if (isAuthError) {
+      console.error(errorMessage);
+      runSyncCleanup();
+      process.exit(getNumericExitCode(customErrorCode ?? ExitCodes.FATAL_AUTHENTICATION_ERROR));
+    }
     throw error;
   }
 }
