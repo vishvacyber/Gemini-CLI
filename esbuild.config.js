@@ -64,6 +64,8 @@ const external = [
   '@lydell/node-pty-win32-x64',
   '@github/keytar',
   '@google/gemini-cli-devtools',
+  'https-proxy-agent',
+  'http-proxy-agent',
 ];
 
 const baseConfig = {
