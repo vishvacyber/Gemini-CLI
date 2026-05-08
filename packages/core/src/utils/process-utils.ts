@@ -39,6 +39,11 @@ export async function killProcessGroup(options: KillOptions): Promise<void> {
   const { pid, escalate = false, isExited = () => false, pty } = options;
   const isWindows = os.platform() === 'win32';
 
+  // Security guard: Never kill yourself or your parent
+  if (pid === process.pid || pid === process.ppid) {
+    return;
+  }
+
   if (isWindows) {
     if (pty) {
       try {
