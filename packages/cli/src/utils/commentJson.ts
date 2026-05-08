@@ -5,7 +5,8 @@
  */
 
 import * as fs from 'node:fs';
-import { parse, stringify } from 'comment-json';
+import { parse as commentJsonParse, stringify } from 'comment-json';
+export { commentJsonParse as parse, stringify };
 import { coreEvents } from '@google/gemini-cli-core';
 
 /**
@@ -21,7 +22,7 @@ export function updateSettingsFilePreservingFormat(
   updates: Record<string, unknown>,
 ): void {
   if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify(updates, null, 2), 'utf-8');
+    fs.writeFileSync(filePath, stringify(updates, null, 2), 'utf-8');
     return;
   }
 
@@ -30,7 +31,7 @@ export function updateSettingsFilePreservingFormat(
   let parsed: Record<string, unknown>;
   try {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    parsed = parse(originalContent) as Record<string, unknown>;
+    parsed = commentJsonParse(originalContent) as Record<string, unknown>;
   } catch (error) {
     coreEvents.emitFeedback(
       'error',

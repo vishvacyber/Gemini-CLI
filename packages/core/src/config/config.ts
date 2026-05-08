@@ -738,6 +738,7 @@ export interface ConfigParameters {
     disabledSkills?: string[];
     adminSkillsEnabled?: boolean;
     agents?: AgentSettings;
+    settings?: Partial<ConfigParameters>;
   }>;
   enableConseca?: boolean;
   billing?: {
@@ -873,7 +874,7 @@ export class Config implements McpContext, AgentLoopContext {
   private readonly includeDirectoryTree: boolean = true;
   private readonly importFormat: 'tree' | 'flat';
   private readonly discoveryMaxDirs: number;
-  private readonly compressionThreshold: number | undefined;
+  private compressionThreshold: number | undefined;
   /** Public for testing only */
   readonly interactive: boolean;
   private readonly ptyInfo: string;
@@ -943,6 +944,7 @@ export class Config implements McpContext, AgentLoopContext {
         disabledSkills?: string[];
         adminSkillsEnabled?: boolean;
         agents?: AgentSettings;
+        settings?: Partial<ConfigParameters>;
       }>)
     | undefined;
 
@@ -956,14 +958,14 @@ export class Config implements McpContext, AgentLoopContext {
   private readonly enableEventDrivenScheduler: boolean;
   private readonly skillsSupport: boolean;
   private disabledSkills: string[];
-  private readonly adminSkillsEnabled: boolean;
+  private adminSkillsEnabled: boolean;
   private readonly experimentalJitContext: boolean;
-  private readonly experimentalMemoryV2: boolean;
-  private readonly experimentalAutoMemory: boolean;
+  private experimentalMemoryV2: boolean;
+  private experimentalAutoMemory: boolean;
   private readonly experimentalGemma: boolean;
   private readonly experimentalContextManagementConfig?: string;
   private readonly memoryBoundaryMarkers: readonly string[];
-  private readonly topicUpdateNarration: boolean;
+  private topicUpdateNarration: boolean;
   private readonly disableLLMCorrection: boolean;
   private readonly planEnabled: boolean;
   private readonly voiceMode: boolean;
@@ -971,7 +973,7 @@ export class Config implements McpContext, AgentLoopContext {
   private readonly planModeRoutingEnabled: boolean;
   private readonly modelSteering: boolean;
   private memoryContextManager?: MemoryContextManager;
-  private readonly contextManagement: ContextManagementConfig;
+  private contextManagement: ContextManagementConfig;
   private terminalBackground: string | undefined = undefined;
   private remoteAdminSettings: AdminControlsSettings | undefined;
   private latestApiRequest: GenerateContentParameters | undefined;
@@ -3541,6 +3543,48 @@ export class Config implements McpContext, AgentLoopContext {
       const refreshed = await this.onReload();
       if (refreshed.agents) {
         this.agents = refreshed.agents;
+      }
+    }
+  }
+
+  /**
+   * Reloads core configuration settings.
+   */
+  async reloadConfig(): Promise<void> {
+    if (this.onReload) {
+      const refreshed = await this.onReload();
+      if (refreshed.settings) {
+        // Hydrate key fields that affect core behavior
+        const s = refreshed.settings;
+        if (s.model) this.setModel(s.model);
+        if (s.compressionThreshold !== undefined) {
+          this.compressionThreshold = s.compressionThreshold;
+        }
+        if (s.ideMode !== undefined) this.ideMode = s.ideMode;
+        if (s.contextManagement) {
+          this.contextManagement = {
+            ...this.contextManagement,
+            ...s.contextManagement,
+          };
+        }
+        if (s.topicUpdateNarration !== undefined) {
+          this.topicUpdateNarration = s.topicUpdateNarration;
+        }
+        if (s.experimentalAutoMemory !== undefined) {
+          this.experimentalAutoMemory = s.experimentalAutoMemory;
+        }
+        if (s.experimentalMemoryV2 !== undefined) {
+          this.experimentalMemoryV2 = s.experimentalMemoryV2;
+        }
+      }
+      if (refreshed.agents) {
+        this.agents = refreshed.agents;
+      }
+      if (refreshed.disabledSkills) {
+        this.disabledSkills = refreshed.disabledSkills;
+      }
+      if (refreshed.adminSkillsEnabled !== undefined) {
+        this.adminSkillsEnabled = refreshed.adminSkillsEnabled;
       }
     }
   }
