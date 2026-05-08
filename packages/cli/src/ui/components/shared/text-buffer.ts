@@ -29,7 +29,10 @@ import { Command } from '../../key/keyMatchers.js';
 import type { VimAction } from './vim-buffer-actions.js';
 import { handleVimAction } from './vim-buffer-actions.js';
 import { LRU_BUFFER_PERF_CACHE_LIMIT } from '../../constants.js';
-import { openFileInEditor } from '../../utils/editorUtils.js';
+import {
+  openFileInEditor,
+  EditorNotConfiguredError,
+} from '../../utils/editorUtils.js';
 import { useKeyMatchers } from '../../hooks/useKeyMatchers.js';
 
 export const LARGE_PASTE_LINE_THRESHOLD = 5;
@@ -3342,6 +3345,13 @@ export function useTextBuffer({
 
       dispatch({ type: 'set_text', payload: newText, pushToUndo: false });
     } catch (err) {
+      if (err instanceof EditorNotConfiguredError) {
+        coreEvents.emitFeedback(
+          'warning',
+          'No external editor configured. Please set your preferred editor in settings.',
+        );
+        return;
+      }
       coreEvents.emitFeedback(
         'error',
         '[useTextBuffer] external editor error',
