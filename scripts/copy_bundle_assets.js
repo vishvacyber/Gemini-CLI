@@ -158,7 +158,7 @@ for (let i = 0; i < pkgsToProcess.length; i++) {
   mkdirSync(pkgDest, { recursive: true });
   cpSync(pkgSrc, pkgDest, {
     recursive: true,
-    dereference: false,
+    dereference: true,
     filter: (src) => basename(src) !== 'node_modules',
   });
   console.log('Copied ' + pkg + ' to bundle/node_modules/');
