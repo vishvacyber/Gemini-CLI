@@ -292,6 +292,7 @@ describe('Turn', () => {
         'Error when talking to Gemini API',
         [...historyContent, { role: 'user', parts: reqParts }],
         'Turn.run-sendMessageStream',
+        expect.any(String),
       );
     });
 

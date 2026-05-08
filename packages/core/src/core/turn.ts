@@ -17,6 +17,8 @@ import type {
   ToolCallConfirmationDetails,
   ToolResult,
 } from '../tools/tools.js';
+import os from 'node:os';
+import path from 'node:path';
 import { getResponseText } from '../utils/partUtils.js';
 import { reportError } from '../utils/errorReporting.js';
 import {
@@ -248,6 +250,7 @@ export class Turn {
   constructor(
     private readonly chat: GeminiChat,
     private readonly prompt_id: string,
+    private readonly errorReportDir?: string,
   ) {}
 
   // The run method yields simpler events suitable for server logic
@@ -380,11 +383,14 @@ export class Turn {
         ...this.chat.getHistory(/*curated*/ true),
         createUserContent(req),
       ];
+      const reportDir =
+        this.errorReportDir ?? path.join(os.tmpdir(), 'error-reports');
       await reportError(
         error,
         'Error when talking to Gemini API',
         contextForReport,
         'Turn.run-sendMessageStream',
+        reportDir,
       );
       const status =
         typeof error === 'object' &&
