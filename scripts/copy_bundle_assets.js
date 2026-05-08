@@ -156,7 +156,11 @@ for (let i = 0; i < pkgsToProcess.length; i++) {
   const pkgSrc = dirname(pkgJsonPath);
   const pkgDest = join(bundleDir, 'node_modules', pkg);
   mkdirSync(pkgDest, { recursive: true });
-  cpSync(pkgSrc, pkgDest, { recursive: true, dereference: true });
+  cpSync(pkgSrc, pkgDest, {
+    recursive: true,
+    dereference: true,
+    filter: (src) => basename(src) !== 'node_modules',
+  });
   console.log('Copied ' + pkg + ' to bundle/node_modules/');
 
   const pkgJson = require(pkgJsonPath);

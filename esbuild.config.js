@@ -65,6 +65,7 @@ const external = [
   '@github/keytar',
   '@google/gemini-cli-devtools',
   'https-proxy-agent',
+  'http-proxy-agent',
 ];
 
 const baseConfig = {
