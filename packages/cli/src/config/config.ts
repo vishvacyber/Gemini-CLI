@@ -108,6 +108,7 @@ export interface CliArgs {
   fakeResponses: string | undefined;
   recordResponses: string | undefined;
   startupMessages?: string[];
+  workspace: string | undefined;
   rawOutput: boolean | undefined;
   acceptRawOutputRisk: boolean | undefined;
   skipTrust: boolean | undefined;
@@ -306,10 +307,16 @@ export async function parseArguments(
           description:
             'Execute the provided prompt and continue in interactive mode',
         })
+        .option('workspace', {
+          type: 'string',
+          nargs: 1,
+          description: 'The workspace directory to operate in',
+        })
         .option('skip-trust', {
           type: 'boolean',
           description: 'Trust the current workspace for this session.',
           default: false,
+
         })
         .option('worktree', {
           alias: 'w',
@@ -549,6 +556,10 @@ export async function parseArguments(
   // Keep CliArgs.query as a string for downstream typing
   result['query'] = q || undefined;
   result['startupMessages'] = startupMessages;
+  
+  if (result['workspace']) {
+    startupMessages.push(`Workspace overridden to: ${result['workspace']}`);
+  }
 
   // The import format is now only controlled by settings.memoryImportFormat
   // We no longer accept it as a CLI argument
