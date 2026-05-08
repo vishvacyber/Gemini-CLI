@@ -62,6 +62,7 @@ import { getErrorMessage } from '../utils/errors.js';
 import { templateString } from './utils.js';
 import { DEFAULT_GEMINI_MODEL, isAutoModel } from '../config/models.js';
 import type { RoutingContext } from '../routing/routingStrategy.js';
+import { LRUCache } from 'mnemonist';
 import { parseThought } from '../utils/thoughtUtils.js';
 import { type z } from 'zod';
 import { debugLogger } from '../utils/debugLogger.js';
@@ -127,6 +128,7 @@ export class LocalAgentExecutor<TOutput extends z.ZodTypeAny> {
   private readonly compressionService: ChatCompressionService;
   private readonly parentCallId?: string;
   private hasFailedCompressionAttempt = false;
+  private cache: LRUCache<string, string>;
 
   private get executionContext(): AgentLoopContext {
     return {
@@ -311,6 +313,7 @@ export class LocalAgentExecutor<TOutput extends z.ZodTypeAny> {
     this.onActivity = onActivity;
     this.compressionService = new ChatCompressionService();
     this.parentCallId = parentCallId;
+    this.cache = new LRUCache<string, string>(10);
 
     this.agentId = Math.random().toString(36).slice(2, 8);
   }
@@ -988,19 +991,25 @@ export class LocalAgentExecutor<TOutput extends z.ZodTypeAny> {
       attempt++;
       let modelToUse: string;
       if (isAutoModel(requestedModel)) {
-        try {
-          const routingContext: RoutingContext = {
-            history: chat.getHistory(/*curated=*/ true),
-            request: message.parts || [],
-            signal,
-            requestedModel,
-          };
-          const router = this.context.config.getModelRouterService();
-          const decision = await router.route(routingContext);
-          modelToUse = decision.model;
-        } catch (error) {
-          debugLogger.warn(`Error during model routing: ${error}`);
-          modelToUse = DEFAULT_GEMINI_MODEL;
+        const cachedModel = this.cache.get('modelToUse');
+        if (cachedModel) {
+          modelToUse = cachedModel;
+        } else {
+          try {
+            const routingContext: RoutingContext = {
+              history: chat.getHistory(/*curated=*/ true),
+              request: message.parts || [],
+              signal,
+              requestedModel,
+            };
+            const router = this.context.config.getModelRouterService();
+            const decision = await router.route(routingContext);
+            modelToUse = decision.model;
+          } catch (error) {
+            debugLogger.warn(`Error during model routing: ${error}`);
+            modelToUse = DEFAULT_GEMINI_MODEL;
+          }
+          this.cache.set('modelToUse', modelToUse);
         }
       } else {
         modelToUse = requestedModel;
@@ -1333,25 +1342,29 @@ export class LocalAgentExecutor<TOutput extends z.ZodTypeAny> {
       }
     }
 
-    // Reconstruct toolResponseParts in the original order
+    // Ensure exactly one response per function call to satisfy the Gemini API protocol.
     const toolResponseParts: Part[] = [];
     for (const [index, functionCall] of functionCalls.entries()) {
       const callId = functionCall.id ?? `${promptId}-${index}`;
       const part = syncResults.get(callId);
+
       if (part) {
         toolResponseParts.push(part);
+        continue;
       }
-    }
 
-    // If all authorized tool calls failed (and task isn't complete), provide a generic error.
-    if (
-      functionCalls.length > 0 &&
-      toolResponseParts.length === 0 &&
-      !taskCompleted
-    ) {
-      toolResponseParts.push({
-        text: 'All tool calls failed or were unauthorized. Please analyze the errors and try an alternative approach.',
-      });
+      const isAborted = signal.aborted;
+      const isTaskComplete =
+        functionCall.name === COMPLETE_TASK_TOOL_NAME && taskCompleted;
+
+      // Safely skip missing responses if the run was interrupted or the turn won't be sent back.
+      if (isAborted || isTaskComplete) {
+        continue;
+      }
+
+      throw new Error(
+        `[LocalAgentExecutor] Critical System Failure: Tool execution result was lost/dropped by the scheduler for callId ${callId} (${functionCall.name}). This indicates an internal race condition or scheduler bug.`,
+      );
     }
 
     return {
