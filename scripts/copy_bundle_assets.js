@@ -18,9 +18,12 @@
 // limitations under the License.
 
 import { copyFileSync, existsSync, mkdirSync, cpSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { glob } from 'glob';
+
+const require = createRequire(import.meta.url);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '..');
@@ -126,19 +129,20 @@ if (existsSync(extensionExamplesSrc)) {
 }
 
 // 8. Copy https-proxy-agent for external dynamic import resolution (proxy support)
-// Keep this list in sync with https-proxy-agent's transitive dependencies.
-// Current tree: https-proxy-agent -> agent-base, debug -> ms
+// Uses require.resolve to locate packages regardless of monorepo hoisting.
 const proxyAgentPkgs = ['https-proxy-agent', 'agent-base', 'debug', 'ms'];
 for (const pkg of proxyAgentPkgs) {
-  const pkgSrc = join(root, 'node_modules', pkg);
-  const pkgDest = join(bundleDir, 'node_modules', pkg);
-  if (!existsSync(pkgSrc)) {
+  let pkgSrc;
+  try {
+    pkgSrc = dirname(require.resolve(`${pkg}/package.json`));
+  } catch {
     console.error(
-      `Error: Required package ${pkg} not found at ${pkgSrc}.\n` +
+      `Error: Required package ${pkg} could not be resolved.\n` +
         `Ensure dependencies are installed with "npm install".`,
     );
     process.exit(1);
   }
+  const pkgDest = join(bundleDir, 'node_modules', pkg);
   mkdirSync(pkgDest, { recursive: true });
   cpSync(pkgSrc, pkgDest, { recursive: true, dereference: true });
   console.log(`Copied ${pkg} to bundle/node_modules/`);
