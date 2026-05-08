@@ -5,10 +5,11 @@
  */
 
 /**
- * Terminal setup utility for configuring Shift+Enter and Ctrl+Enter support.
+ * Terminal setup utility for configuring IDE terminal keybindings.
  *
  * This module provides automatic detection and configuration of various terminal
- * emulators to support multiline input through modified Enter keys.
+ * emulators to support multiline input and clipboard paste through modified
+ * keys.
  *
  * Supported terminals:
  * - VS Code: Configures keybindings.json to send \\\r\n
@@ -19,9 +20,11 @@
  * For VS Code and its forks:
  * - Shift+Enter: Sends \\\r\n (backslash followed by CRLF)
  * - Ctrl+Enter: Sends \\\r\n (backslash followed by CRLF)
+ * - Ctrl+V: Sends Ctrl+V directly to Gemini CLI
+ * - Cmd+V / Alt+V: Sends kitty protocol sequences for Gemini CLI paste
  *
- * The module will not modify existing shift+enter or ctrl+enter keybindings
- * to avoid conflicts with user customizations.
+ * The module will not modify existing keybindings to avoid conflicts with user
+ * customizations.
  */
 
 import { promises as fs } from 'node:fs';
@@ -41,6 +44,9 @@ import type { UseHistoryManagerReturn } from '../hooks/useHistoryManager.js';
 type AddItemFn = UseHistoryManagerReturn['addItem'];
 
 export const VSCODE_SHIFT_ENTER_SEQUENCE = '\\\r\n';
+const VSCODE_CTRL_V_SEQUENCE = '\u0016';
+const VSCODE_ALT_V_SEQUENCE = '\u001b[118;3u';
+const VSCODE_CMD_V_SEQUENCE = '\u001b[118;9u';
 
 const execAsync = promisify(exec);
 
@@ -276,6 +282,24 @@ async function configureVSCodeStyle(
         args: { text: VSCODE_SHIFT_ENTER_SEQUENCE },
       },
       {
+        key: 'ctrl+v',
+        command: 'workbench.action.terminal.sendSequence',
+        when: 'terminalFocus',
+        args: { text: VSCODE_CTRL_V_SEQUENCE },
+      },
+      {
+        key: 'cmd+v',
+        command: 'workbench.action.terminal.sendSequence',
+        when: 'terminalFocus',
+        args: { text: VSCODE_CMD_V_SEQUENCE },
+      },
+      {
+        key: 'alt+v',
+        command: 'workbench.action.terminal.sendSequence',
+        when: 'terminalFocus',
+        args: { text: VSCODE_ALT_V_SEQUENCE },
+      },
+      {
         key: 'cmd+z',
         command: 'workbench.action.terminal.sendSequence',
         when: 'terminalFocus',
@@ -471,7 +495,7 @@ export async function terminalSetup(): Promise<TerminalSetupResult> {
 }
 
 export const TERMINAL_SETUP_CONSENT_MESSAGE =
-  'Gemini CLI works best with Shift+Enter/Ctrl+Enter for multiline input. ' +
+  'Gemini CLI works best with IDE terminal keybindings for multiline input and clipboard paste. ' +
   'Would you like to automatically configure your terminal keybindings?';
 
 export function formatTerminalSetupResultMessage(

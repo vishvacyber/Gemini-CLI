@@ -158,7 +158,7 @@ export const INFORMATIVE_TIPS = [
   'View and edit settings with the /settings editor',
   'Toggle Vim keybindings on and off with /vim',
   'Set up GitHub Actions with /setup-github',
-  'Configure terminal keybindings for multiline input with /terminal-setup',
+  'Configure terminal keybindings for IDE paste and multiline input with /terminal-setup',
   'Find relevant documentation with /find-docs',
   'Execute any shell command with !<command>',
   // Command tips end here

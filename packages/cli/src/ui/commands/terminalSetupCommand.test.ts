@@ -19,6 +19,8 @@ describe('terminalSetupCommand', () => {
   it('should have correct metadata', () => {
     expect(terminalSetupCommand.name).toBe('terminal-setup');
     expect(terminalSetupCommand.description).toContain('multiline input');
+    expect(terminalSetupCommand.description).toContain('paste');
+    expect(terminalSetupCommand.description).toContain('Antigravity');
     expect(terminalSetupCommand.kind).toBe('built-in');
   });
 

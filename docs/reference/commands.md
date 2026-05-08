@@ -453,7 +453,7 @@ Slash commands provide meta-level control over the CLI itself.
 ### `/terminal-setup`
 
 - **Description:** Configure terminal keybindings for multiline input (VS Code,
-  Cursor, Windsurf).
+  Cursor, Windsurf, Antigravity) and Gemini clipboard paste shortcuts.
 
 ### `/theme`
 

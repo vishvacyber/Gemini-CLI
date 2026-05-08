@@ -9,15 +9,15 @@ import { terminalSetup } from '../utils/terminalSetup.js';
 import { type MessageActionReturn } from '@google/gemini-cli-core';
 
 /**
- * Command to configure terminal keybindings for multiline input support.
+ * Command to configure terminal keybindings for multiline input and paste.
  *
- * This command automatically detects and configures VS Code, Cursor, and Windsurf
- * to support Shift+Enter and Ctrl+Enter for multiline input.
+ * This command automatically detects and configures VS Code-style IDE
+ * terminals to support Gemini CLI multiline input and paste shortcuts.
  */
 export const terminalSetupCommand: SlashCommand = {
   name: 'terminal-setup',
   description:
-    'Configure terminal keybindings for multiline input (VS Code, Cursor, Windsurf)',
+    'Configure terminal keybindings for multiline input and paste (VS Code, Cursor, Windsurf, Antigravity)',
   kind: CommandKind.BUILT_IN,
   autoExecute: true,
   action: async (): Promise<MessageActionReturn> => {

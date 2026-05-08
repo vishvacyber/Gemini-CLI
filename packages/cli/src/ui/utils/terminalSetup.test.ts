@@ -134,7 +134,71 @@ describe('terminalSetup', () => {
 
       expect(result.success).toBe(true);
       const writtenContent = JSON.parse(mocks.writeFile.mock.calls[0][1]);
-      expect(writtenContent).toHaveLength(6); // Shift+Enter, Ctrl+Enter, Cmd+Z, Alt+Z, Shift+Cmd+Z, Shift+Alt+Z
+      expect(writtenContent).toHaveLength(9); // Shift+Enter, Ctrl+Enter, Ctrl+V, Cmd+V, Alt+V, Cmd+Z, Alt+Z, Shift+Cmd+Z, Shift+Alt+Z
+    });
+
+    it('should upgrade existing multiline-only setup with paste bindings', async () => {
+      vi.stubEnv('TERM_PROGRAM', 'vscode');
+      const existingBindings = [
+        {
+          key: 'shift+enter',
+          command: 'workbench.action.terminal.sendSequence',
+          args: { text: VSCODE_SHIFT_ENTER_SEQUENCE },
+        },
+        {
+          key: 'ctrl+enter',
+          command: 'workbench.action.terminal.sendSequence',
+          args: { text: VSCODE_SHIFT_ENTER_SEQUENCE },
+        },
+        {
+          key: 'cmd+z',
+          command: 'workbench.action.terminal.sendSequence',
+          args: { text: '\u001b[122;9u' },
+        },
+        {
+          key: 'alt+z',
+          command: 'workbench.action.terminal.sendSequence',
+          args: { text: '\u001b[122;3u' },
+        },
+        {
+          key: 'shift+cmd+z',
+          command: 'workbench.action.terminal.sendSequence',
+          args: { text: '\u001b[122;10u' },
+        },
+        {
+          key: 'shift+alt+z',
+          command: 'workbench.action.terminal.sendSequence',
+          args: { text: '\u001b[122;4u' },
+        },
+      ];
+      mocks.readFile.mockResolvedValue(JSON.stringify(existingBindings));
+
+      const result = await terminalSetup();
+
+      expect(result.success).toBe(true);
+      expect(mocks.writeFile).toHaveBeenCalled();
+
+      const writtenContent = JSON.parse(mocks.writeFile.mock.calls[0][1]);
+      expect(writtenContent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            key: 'ctrl+v',
+            command: 'workbench.action.terminal.sendSequence',
+            args: { text: '\u0016' },
+          }),
+          expect.objectContaining({
+            key: 'cmd+v',
+            command: 'workbench.action.terminal.sendSequence',
+            args: { text: '\u001b[118;9u' },
+          }),
+          expect.objectContaining({
+            key: 'alt+v',
+            command: 'workbench.action.terminal.sendSequence',
+            args: { text: '\u001b[118;3u' },
+          }),
+        ]),
+      );
+      expect(writtenContent).toHaveLength(9);
     });
 
     it('should not modify if bindings already exist', async () => {
@@ -149,6 +213,21 @@ describe('terminalSetup', () => {
           key: 'ctrl+enter',
           command: 'workbench.action.terminal.sendSequence',
           args: { text: VSCODE_SHIFT_ENTER_SEQUENCE },
+        },
+        {
+          key: 'ctrl+v',
+          command: 'workbench.action.terminal.sendSequence',
+          args: { text: '\u0016' },
+        },
+        {
+          key: 'cmd+v',
+          command: 'workbench.action.terminal.sendSequence',
+          args: { text: '\u001b[118;9u' },
+        },
+        {
+          key: 'alt+v',
+          command: 'workbench.action.terminal.sendSequence',
+          args: { text: '\u001b[118;3u' },
         },
         {
           key: 'cmd+z',

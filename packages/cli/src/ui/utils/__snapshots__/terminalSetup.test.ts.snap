@@ -36,6 +36,30 @@ exports[`terminalSetup > configureVSCodeStyle > should create new keybindings fi
   },
   {
     "args": {
+      "text": "[118;3u",
+    },
+    "command": "workbench.action.terminal.sendSequence",
+    "key": "alt+v",
+    "when": "terminalFocus",
+  },
+  {
+    "args": {
+      "text": "[118;9u",
+    },
+    "command": "workbench.action.terminal.sendSequence",
+    "key": "cmd+v",
+    "when": "terminalFocus",
+  },
+  {
+    "args": {
+      "text": "",
+    },
+    "command": "workbench.action.terminal.sendSequence",
+    "key": "ctrl+v",
+    "when": "terminalFocus",
+  },
+  {
+    "args": {
       "text": "\\
 ",
     },
