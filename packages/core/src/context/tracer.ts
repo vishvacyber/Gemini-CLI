@@ -43,6 +43,10 @@ export class ContextTracer {
     }
   }
 
+  get isEnabled(): boolean {
+    return this.enabled;
+  }
+
   logEvent(
     component: string,
     action: string,

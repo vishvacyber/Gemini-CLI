@@ -51,13 +51,15 @@ export async function render(
     isOverBudget: currentTokens > maxTokens,
   });
 
-  tracer.logEvent('Render', 'Estimation Calibration', {
-    breakdown: env.tokenCalculator.calculateTokenBreakdown(nodes),
-  });
+  if (tracer.isEnabled) {
+    tracer.logEvent('Render', 'Estimation Calibration', {
+      breakdown: env.tokenCalculator.calculateTokenBreakdown(nodes),
+    });
 
-  tracer.logEvent('Render', 'Protection Audit', {
-    reasons: Object.fromEntries(protectionReasons),
-  });
+    tracer.logEvent('Render', 'Protection Audit', {
+      reasons: Object.fromEntries(protectionReasons),
+    });
+  }
 
   if (currentTokens <= maxTokens) {
     tracer.logEvent(
