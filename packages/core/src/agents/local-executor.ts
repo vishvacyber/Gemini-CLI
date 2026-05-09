@@ -315,7 +315,10 @@ export class LocalAgentExecutor<TOutput extends z.ZodTypeAny> {
     this.parentCallId = parentCallId;
     this.cache = new LRUCache<string, string>(10);
 
-    this.agentId = Math.random().toString(36).slice(2, 8);
+    const sanitizedParentId = parentCallId?.replace(/[^a-zA-Z0-9_-]/g, '_');
+    this.agentId = sanitizedParentId
+      ? `${sanitizedParentId}-${Math.random().toString(36).slice(2, 8)}`
+      : Math.random().toString(36).slice(2, 8);
   }
 
   /**
