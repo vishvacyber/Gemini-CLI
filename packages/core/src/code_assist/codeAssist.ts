@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { AuthType, type ContentGenerator } from '../core/contentGenerator.js';
+import { type ContentGenerator } from '../core/contentGenerator.js';
+import { AuthType } from '../core/auth_types.js';
 import { getOauthClient } from './oauth2.js';
 import { setupUser } from './setup.js';
 import { CodeAssistServer, type HttpOptions } from './server.js';
@@ -22,7 +23,7 @@ export async function createCodeAssistContentGenerator(
     authType === AuthType.COMPUTE_ADC
   ) {
     const authClient = await getOauthClient(authType, config);
-    const userData = await setupUser(authClient, config, httpOptions);
+    const userData = await setupUser(authClient, config, httpOptions, authType);
     return new CodeAssistServer(
       authClient,
       userData.projectId,
