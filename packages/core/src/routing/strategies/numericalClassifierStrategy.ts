@@ -115,7 +115,22 @@ export class NumericalClassifierStrategy implements RoutingStrategy {
 
       const promptId = getPromptIdWithFallback('classifier-router');
 
-      const finalHistory = context.history.slice(-HISTORY_TURNS_FOR_CONTEXT);
+      let startIndex = Math.max(
+        0,
+        context.history.length - HISTORY_TURNS_FOR_CONTEXT,
+      );
+      // Ensure we don't sever a functionResponse from its preceding functionCall
+      while (
+        startIndex > 0 &&
+        startIndex < context.history.length &&
+        context.history[startIndex].role === 'user' &&
+        context.history[startIndex].parts?.some((p) => !!p.functionResponse) &&
+        context.history[startIndex - 1].role === 'model' &&
+        context.history[startIndex - 1].parts?.some((p) => !!p.functionCall)
+      ) {
+        startIndex--;
+      }
+      const finalHistory = context.history.slice(startIndex);
 
       // Wrap the user's request in tags to prevent prompt injection
       const requestParts = Array.isArray(context.request)
